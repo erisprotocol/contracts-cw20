@@ -1,3 +1,4 @@
+use astroport::asset::AssetInfo;
 use cosmwasm_std::{Addr, Coin, Storage};
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, MultiIndex};
 
@@ -13,6 +14,10 @@ pub(crate) struct State<'a> {
     pub owner: Item<'a, Addr>,
     /// Pending ownership transfer, awaiting acceptance by the new owner
     pub new_owner: Item<'a, Addr>,
+    /// Account who can call harvest
+    pub operator: Item<'a, Addr>,
+    /// Stages that must be used by permissionless users
+    pub stages_preset: Item<'a, Vec<Vec<(Addr, AssetInfo)>>>,
     /// Address of the Liquid Staking token
     pub stake_token: Item<'a, Addr>,
     /// How often the unbonding queue is to be executed
@@ -60,6 +65,8 @@ impl Default for State<'static> {
         Self {
             owner: Item::new("owner"),
             new_owner: Item::new("new_owner"),
+            operator: Item::new("operator"),
+            stages_preset: Item::new("stages_preset"),
             stake_token: Item::new("stake_token"),
             epoch_period: Item::new("epoch_period"),
             unbond_period: Item::new("unbond_period"),
@@ -84,6 +91,19 @@ impl<'a> State<'a> {
             Ok(())
         } else {
             Err(ContractError::Unauthorized {})
+        }
+    }
+
+    pub fn assert_operator(
+        &self,
+        storage: &dyn Storage,
+        sender: &Addr,
+    ) -> Result<(), ContractError> {
+        let operator = self.operator.load(storage)?;
+        if *sender == operator {
+            Ok(())
+        } else {
+            Err(ContractError::UnauthorizedSenderNotOperator {})
         }
     }
 

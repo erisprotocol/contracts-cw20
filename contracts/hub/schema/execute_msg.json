@@ -16,7 +16,7 @@
       "additionalProperties": false
     },
     {
-      "description": "Bond specified amount of Luna",
+      "description": "Bond specified amount of Token",
       "type": "object",
       "required": [
         "bond"
@@ -37,7 +37,7 @@
       "additionalProperties": false
     },
     {
-      "description": "Donates specified amount of Luna to pool",
+      "description": "Donates specified amount of Token to pool",
       "type": "object",
       "required": [
         "donate"
@@ -50,7 +50,7 @@
       "additionalProperties": false
     },
     {
-      "description": "Withdraw Luna that have finished unbonding in previous batches",
+      "description": "Withdraw Token that have finished unbonding in previous batches",
       "type": "object",
       "required": [
         "withdraw_unbonded"
@@ -160,7 +160,7 @@
       "additionalProperties": false
     },
     {
-      "description": "Claim staking rewards, swap all for Luna, and restake",
+      "description": "Claim staking rewards, swap all for Token, and restake",
       "type": "object",
       "required": [
         "harvest"
@@ -185,7 +185,7 @@
       "additionalProperties": false
     },
     {
-      "description": "Use redelegations to balance the amounts of Luna delegated to validators",
+      "description": "Use redelegations to balance the amounts of Token delegated to validators",
       "type": "object",
       "required": [
         "rebalance"
@@ -210,7 +210,7 @@
       "additionalProperties": false
     },
     {
-      "description": "Update Luna amounts in unbonding batches to reflect any slashing or rounding errors",
+      "description": "Update Token amounts in unbonding batches to reflect any slashing or rounding errors",
       "type": "object",
       "required": [
         "reconcile"
@@ -382,7 +382,7 @@
     "CallbackMsg": {
       "oneOf": [
         {
-          "description": "Swap Terra stablecoins held by the contract to Luna Following the swaps, stake the Luna acquired to the whitelisted validators",
+          "description": "Swap coins held by the contract to Token Following the swaps, stake the Token acquired to the whitelisted validators",
           "type": "object",
           "required": [
             "reinvest"

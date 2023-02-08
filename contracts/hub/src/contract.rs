@@ -64,7 +64,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> C
         } => execute::transfer_ownership(deps, info.sender, new_owner),
         ExecuteMsg::DropOwnershipProposal {} => execute::drop_ownership_proposal(deps, info.sender),
         ExecuteMsg::AcceptOwnership {} => execute::accept_ownership(deps, info.sender),
-        ExecuteMsg::Harvest {} => execute::harvest(deps, env),
+        ExecuteMsg::Harvest {
+            stages,
+        } => execute::harvest(deps, env, stages, info.sender),
         ExecuteMsg::TuneDelegations {} => execute::tune_delegations(deps, env, info.sender),
         ExecuteMsg::Rebalance {
             min_redelegation,
@@ -86,13 +88,17 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> C
             delegation_strategy,
             allow_donations,
             vote_operator,
+            operator,
+            stages_preset,
         } => execute::update_config(
             deps,
             info.sender,
             protocol_fee_contract,
             protocol_reward_fee,
-            delegation_strategy,
+            operator,
+            stages_preset,
             allow_donations,
+            delegation_strategy,
             vote_operator,
         ),
     }
@@ -133,10 +139,14 @@ fn callback(
 
     match callback_msg {
         CallbackMsg::Reinvest {} => execute::reinvest(deps, env),
+        CallbackMsg::Swap {
+            stage,
+        } => execute::swap(deps, env, stage),
 
         CallbackMsg::CheckReceivedCoin {
             snapshot,
-        } => execute::callback_received_coin(deps, env, snapshot),
+            snapshot_stake,
+        } => execute::callback_received_coin(deps, env, snapshot, snapshot_stake),
     }
 }
 

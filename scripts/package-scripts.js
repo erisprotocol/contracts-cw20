@@ -7,7 +7,7 @@ module.exports = {
     },
     schema: {
       default:
-        "nps schema.create schema.transform schema.hub schema.ampz schema.token schema.ampextractor schema.farm  schema.compound schema.fees schema.generator schema.votingescrow schema.ampgauges schema.empgauges schema.propgauges",
+        "nps schema.create schema.transform schema.hub schema.token schema.votingescrow schema.ampgauges schema.empgauges schema.propgauges",
 
       transform: "ts-node transform.ts",
 

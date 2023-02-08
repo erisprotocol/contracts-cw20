@@ -306,6 +306,8 @@ impl BaseErisTestPackage {
                     delegation_strategy,
                     allow_donations: None,
                     vote_operator: None,
+                    operator: None,
+                    stages_preset: None,
                 },
                 &[],
             )

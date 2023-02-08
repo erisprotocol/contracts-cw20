@@ -1,11 +1,13 @@
+use astroport::asset::{token_asset_info, Asset, AssetInfo, AssetInfoExt};
 use cosmwasm_std::{
     attr, to_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, DistributionMsg, Env, Event,
-    Order, Response, StdError, StdResult, SubMsg, SubMsgResponse, Uint128, WasmMsg,
+    Order, Response, StdError, StdResult, Storage, SubMsg, SubMsgResponse, Uint128, WasmMsg,
 };
 
 use cw2::set_contract_version;
 use cw20::{Cw20ExecuteMsg, MinterResponse};
 use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
+use eris::adapters::pair::Pair;
 use eris::helper::CONTRACT_DENOM;
 use eris::{CustomResponse, DecimalCheckedOps};
 
@@ -13,6 +15,7 @@ use eris::hub::{
     Batch, CallbackMsg, DelegationStrategy, ExecuteMsg, FeeConfig, InstantiateMsg, PendingBatch,
     UnbondRequest,
 };
+use itertools::Itertools;
 
 use crate::constants::{get_reward_fee_cap, CONTRACT_NAME, CONTRACT_VERSION};
 use crate::error::{ContractError, ContractResult};
@@ -178,7 +181,7 @@ pub fn bond(
         None
     } else {
         Some(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: stake_token.into(),
+            contract_addr: stake_token.clone().into(),
             msg: to_binary(&Cw20ExecuteMsg::Mint {
                 recipient: receiver.to_string(),
                 amount: ustake_to_mint,
@@ -190,12 +193,19 @@ pub fn bond(
     Ok(Response::new()
         .add_message(new_delegation.to_cosmos_msg())
         .add_optional_message(mint_msg)
-        .add_message(check_received_coin_msg(&deps, &env, Some(token_to_bond))?)
+        .add_message(check_received_coin_msg(&deps, &env, stake_token, Some(token_to_bond))?)
         .add_event(event)
         .add_attribute("action", "erishub/bond"))
 }
 
-pub fn harvest(deps: DepsMut, env: Env) -> ContractResult {
+pub fn harvest(
+    deps: DepsMut,
+    env: Env,
+    stages: Option<Vec<Vec<(Addr, AssetInfo)>>>,
+    sender: Addr,
+) -> ContractResult {
+    let state = State::default();
+
     let withdraw_msgs = query_all_delegations(&deps.querier, &env.contract.address)?
         .into_iter()
         .map(|d| {
@@ -205,17 +215,93 @@ pub fn harvest(deps: DepsMut, env: Env) -> ContractResult {
         })
         .collect::<Vec<_>>();
 
+    validate_no_utoken_or_ustake_swap(&stages, &state, deps.storage)?;
+
+    let stages = if let Some(stages) = stages {
+        // only operator is allowed to send custom stages
+        state.assert_operator(deps.storage, &sender)?;
+        Some(stages)
+    } else {
+        // otherwise use configured stages
+        state.stages_preset.may_load(deps.storage)?
+    };
+
+    let swap_msgs: Option<Vec<CallbackMsg>> = stages.map(|stages| {
+        stages
+            .into_iter()
+            .map(|stage| CallbackMsg::Swap {
+                stage,
+            })
+            .collect_vec()
+    });
+
+    let stake_token = state.stake_token.load(deps.storage)?;
+
     Ok(Response::new()
+        // 1. withdraw delegation rewards
         .add_messages(withdraw_msgs)
-        .add_message(check_received_coin_msg(&deps, &env, None)?)
+        // 2. (skipped) claim / withdraw funds
+        // 3. swap
+        .add_optional_callbacks(&env, swap_msgs)?
+        // 4. apply received total utoken to unlocked_coins
+        .add_message(check_received_coin_msg(&deps, &env, stake_token, None)?)
+        // 5. restake unlocked_coins
         .add_message(CallbackMsg::Reinvest {}.into_cosmos_msg(&env.contract.address)?)
         .add_attribute("action", "erishub/harvest"))
+}
+
+/// swaps all unlocked coins to token
+pub fn swap(deps: DepsMut, env: Env, stage: Vec<(Addr, AssetInfo)>) -> ContractResult {
+    let mut response = Response::new().add_attribute("action", "erishub/swap");
+    for (pair_addr, asset_info) in stage {
+        let amount = asset_info.query_pool(&deps.querier, env.contract.address.clone())?;
+        if !amount.is_zero() {
+            let pair = Pair(pair_addr);
+            let asset = &asset_info.with_balance(amount);
+            response = response.add_message(pair.swap_msg(asset, None, None, None)?)
+        }
+    }
+
+    Ok(response)
+}
+
+fn validate_no_utoken_or_ustake_swap(
+    stages: &Option<Vec<Vec<(Addr, AssetInfo)>>>,
+    state: &State,
+    storage: &dyn Storage,
+) -> Result<(), ContractError> {
+    if let Some(stages) = stages {
+        let stake_token_denom = state.stake_token.load(storage)?;
+
+        for stage in stages {
+            for (_addr, denom) in stage {
+                match denom {
+                    AssetInfo::Token {
+                        contract_addr,
+                    } => {
+                        if *contract_addr == stake_token_denom {
+                            Err(ContractError::SwapFromNotAllowed(contract_addr.to_string()))?;
+                        }
+                    },
+                    AssetInfo::NativeToken {
+                        denom,
+                    } => {
+                        if denom == CONTRACT_DENOM {
+                            Err(ContractError::SwapFromNotAllowed(denom.to_string()))?;
+                        }
+                    },
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// This callback is used to take a current snapshot of the balance and add the received balance to the unlocked_coins state after the execution
 fn check_received_coin_msg(
     deps: &DepsMut,
     env: &Env,
+    stake_token: Addr,
     // offset to account for funds being sent that should be ignored
     negative_offset: Option<Uint128>,
 ) -> StdResult<CosmosMsg> {
@@ -226,12 +312,16 @@ fn check_received_coin_msg(
         amount = amount.checked_sub(negative_offset)?;
     }
 
+    let stake = token_asset_info(stake_token);
+    let amount_stake = stake.query_pool(&deps.querier, env.contract.address.clone())?;
+
     CallbackMsg::CheckReceivedCoin {
         // 0. take current balance - offset
         snapshot: Coin {
             denom: CONTRACT_DENOM.to_string(),
             amount,
         },
+        snapshot_stake: stake.with_balance(amount_stake),
     }
     .into_cosmos_msg(&env.contract.address)
 }
@@ -278,28 +368,59 @@ pub fn reinvest(deps: DepsMut, env: Env) -> ContractResult {
         .add_attribute("action", "erishub/reinvest"))
 }
 
-pub fn callback_received_coin(deps: DepsMut, env: Env, snapshot: Coin) -> ContractResult {
+pub fn callback_received_coin(
+    deps: DepsMut,
+    env: Env,
+    snapshot: Coin,
+    snapshot_stake: Asset,
+) -> ContractResult {
+    let state = State::default();
     // in some cosmwasm versions the events are not received in the callback
     // so each time the contract can receive some coins from rewards we also need to check after receiving some and add them to the unlocked_coins
-    let current_balance =
-        deps.querier.query_balance(env.contract.address, snapshot.denom.to_string())?.amount;
+    let current_balance = deps
+        .querier
+        .query_balance(env.contract.address.clone(), snapshot.denom.to_string())?
+        .amount;
+
+    let current_balance_stake =
+        snapshot_stake.info.query_pool(&deps.querier, env.contract.address)?;
+
+    let mut response = Response::new().add_attribute("action", "erishub/received");
 
     if current_balance > snapshot.amount {
-        let amount = current_balance.checked_sub(snapshot.amount)?;
-        let event = Event::new("erishub/received")
-            .add_attribute("received_coin", amount.to_string() + snapshot.denom.as_str());
+        let amount = current_balance - snapshot.amount;
 
-        let state = State::default();
         state.unlocked_coins.update(deps.storage, |coins| -> StdResult<_> {
             let mut coins = Coins(coins);
-            coins.add(&Coin::new(amount.u128(), snapshot.denom))?;
+            coins.add(&Coin::new(amount.u128(), snapshot.denom.clone()))?;
             Ok(coins.0)
         })?;
 
-        return Ok(Response::new().add_event(event).add_attribute("action", "erishub/received"));
+        response =
+            response.add_attribute("received_coin", amount.to_string() + snapshot.denom.as_str());
     }
 
-    Ok(Response::new().add_attribute("action", "erishub/received"))
+    let mut burn_msg: Option<CosmosMsg> = None;
+    if current_balance_stake > snapshot_stake.amount {
+        // if we have received ampKuji as staking rewards we burn it and increase exchange rate by it.
+        let ustake_to_burn = current_balance_stake - snapshot_stake.amount;
+        let stake_token = state.stake_token.load(deps.storage)?;
+
+        burn_msg = Some(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: stake_token.to_string(),
+            msg: to_binary(&Cw20ExecuteMsg::Burn {
+                amount: ustake_to_burn,
+            })?,
+            funds: vec![],
+        }));
+
+        response = response.add_attribute(
+            "received_coin_burnt",
+            ustake_to_burn.to_string() + stake_token.as_str(),
+        );
+    }
+
+    Ok(response.add_optional_message(burn_msg))
 }
 
 /// searches for the validator with the least amount of delegations
@@ -453,7 +574,7 @@ pub fn submit_batch(deps: DepsMut, env: Env) -> ContractResult {
     let undelegate_msgs = new_undelegations.iter().map(|d| d.to_cosmos_msg()).collect::<Vec<_>>();
 
     let burn_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: stake_token.into(),
+        contract_addr: stake_token.clone().into(),
         msg: to_binary(&Cw20ExecuteMsg::Burn {
             amount: pending_batch.ustake_to_burn,
         })?,
@@ -468,7 +589,7 @@ pub fn submit_batch(deps: DepsMut, env: Env) -> ContractResult {
     Ok(Response::new()
         .add_messages(undelegate_msgs)
         .add_message(burn_msg)
-        .add_message(check_received_coin_msg(&deps, &env, None)?)
+        .add_message(check_received_coin_msg(&deps, &env, stake_token, None)?)
         .add_event(event)
         .add_attribute("action", "erishub/unbond"))
 }
@@ -665,8 +786,9 @@ pub fn rebalance(
     let event = Event::new("erishub/rebalanced").add_attribute("utoken_moved", amount.to_string());
 
     let check_msg = if !redelegate_msgs.is_empty() {
+        let stake_token = state.stake_token.load(deps.storage)?;
         // only check coins if a redelegation is happening
-        Some(check_received_coin_msg(&deps, &env, None)?)
+        Some(check_received_coin_msg(&deps, &env, stake_token, None)?)
     } else {
         None
     };
@@ -745,8 +867,9 @@ pub fn remove_validator(
     let event = Event::new("erishub/validator_removed").add_attribute("validator", validator);
 
     let check_msg = if !redelegate_msgs.is_empty() {
+        let stake_token = state.stake_token.load(deps.storage)?;
         // only check coins if a redelegation is happening
-        Some(check_received_coin_msg(&deps, &env, None)?)
+        Some(check_received_coin_msg(&deps, &env, stake_token, None)?)
     } else {
         None
     };
@@ -796,13 +919,16 @@ pub fn accept_ownership(deps: DepsMut, sender: Addr) -> ContractResult {
     Ok(Response::new().add_event(event).add_attribute("action", "erishub/transfer_ownership"))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_config(
     deps: DepsMut,
     sender: Addr,
     protocol_fee_contract: Option<String>,
     protocol_reward_fee: Option<Decimal>,
-    delegation_strategy: Option<DelegationStrategy>,
+    operator: Option<String>,
+    stages_preset: Option<Vec<Vec<(Addr, AssetInfo)>>>,
     allow_donations: Option<bool>,
+    delegation_strategy: Option<DelegationStrategy>,
     vote_operator: Option<String>,
 ) -> ContractResult {
     let state = State::default();
@@ -824,6 +950,18 @@ pub fn update_config(
         }
 
         state.fee_config.save(deps.storage, &fee_config)?;
+    }
+
+    if let Some(operator) = operator {
+        state.operator.save(deps.storage, &deps.api.addr_validate(operator.as_str())?)?;
+    }
+
+    if stages_preset.is_some() {
+        validate_no_utoken_or_ustake_swap(&stages_preset, &state, deps.storage)?;
+    }
+
+    if let Some(stages_preset) = stages_preset {
+        state.stages_preset.save(deps.storage, &stages_preset)?;
     }
 
     if let Some(delegation_strategy) = delegation_strategy {

@@ -25,6 +25,9 @@ pub enum ContractError {
     #[error("Unauthorized: sender is not vote operator")]
     UnauthorizedSenderNotVoteOperator {},
 
+    #[error("Unauthorized: sender is not operator")]
+    UnauthorizedSenderNotOperator {},
+
     #[error("Expecting stake token, received {0}")]
     ExpectingStakeToken(String),
 
@@ -54,6 +57,9 @@ pub enum ContractError {
 
     #[error("validator {0} is not whitelisted")]
     ValidatorNotWhitelisted(String),
+
+    #[error("Swap from {0} is not allowed")]
+    SwapFromNotAllowed(String),
 
     #[error("cannot find `instantiate` event")]
     CannotFindInstantiateEvent {},

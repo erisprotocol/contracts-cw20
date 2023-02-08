@@ -362,7 +362,12 @@ impl EscrowHelper {
     }
 
     pub fn hub_harvest(&self, router_ref: &mut App) -> Result<AppResponse> {
-        self.hub_execute(router_ref, eris::hub::ExecuteMsg::Harvest {})
+        self.hub_execute(
+            router_ref,
+            eris::hub::ExecuteMsg::Harvest {
+                stages: None,
+            },
+        )
     }
 
     pub fn hub_add_validator(

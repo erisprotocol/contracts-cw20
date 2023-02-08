@@ -47,6 +47,10 @@ fn update_configs() -> Result<()> {
                 max_delegation_bps: 2500,
                 validator_count: 5,
             },
+            operator: None,
+            stages_preset: None,
+            allow_donations: false,
+            vote_operator: None,
         }
     );
 
@@ -59,6 +63,8 @@ fn update_configs() -> Result<()> {
                 protocol_fee_contract: None,
                 allow_donations: None,
                 vote_operator: None,
+                operator: None,
+                stages_preset: None,
             },
             Addr::unchecked("user"),
         )
@@ -75,6 +81,8 @@ fn update_configs() -> Result<()> {
                 delegation_strategy: Some(eris::hub::DelegationStrategy::Uniform),
                 allow_donations: None,
                 vote_operator: None,
+                operator: None,
+                stages_preset: None,
             },
         )
         .unwrap();
@@ -98,7 +106,11 @@ fn update_configs() -> Result<()> {
                 protocol_fee_contract: Addr::unchecked("fee_new"),
                 protocol_reward_fee: Decimal::from_ratio(10u128, 100u128)
             },
-            delegation_strategy: eris::hub::DelegationStrategy::Uniform
+            delegation_strategy: eris::hub::DelegationStrategy::Uniform,
+            operator: None,
+            stages_preset: None,
+            allow_donations: false,
+            vote_operator: None,
         }
     );
 
@@ -254,6 +266,8 @@ fn config_does_not_change_exchange_rate() -> Result<()> {
             }),
             allow_donations: None,
             vote_operator: None,
+            operator: None,
+            stages_preset: None,
         },
     )?;
 
@@ -385,6 +399,8 @@ fn config_does_not_change_exchange_rate_emps() -> Result<()> {
             }),
             allow_donations: None,
             vote_operator: None,
+            operator: None,
+            stages_preset: None,
         },
     )?;
 

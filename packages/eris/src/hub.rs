@@ -1,3 +1,4 @@
+use astroport::asset::{Asset, AssetInfo};
 use cosmwasm_std::{
     to_binary, Addr, Api, Coin, CosmosMsg, Decimal, Empty, QuerierWrapper, StdResult, Timestamp,
     Uint128, VoteOption, WasmMsg,
@@ -115,7 +116,9 @@ pub enum ExecuteMsg {
     /// Accept an ownership transfer
     AcceptOwnership {},
     /// Claim staking rewards, swap all for Token, and restake
-    Harvest {},
+    Harvest {
+        stages: Option<Vec<Vec<(Addr, AssetInfo)>>>,
+    },
 
     TuneDelegations {},
     /// Use redelegations to balance the amounts of Token delegated to validators
@@ -147,6 +150,10 @@ pub enum ExecuteMsg {
         protocol_fee_contract: Option<String>,
         /// Fees that are being applied during reinvest of staking rewards
         protocol_reward_fee: Option<Decimal>, // "1 is 100%, 0.05 is 5%"
+        /// Sets a new operator
+        operator: Option<String>,
+        /// Sets the stages preset
+        stages_preset: Option<Vec<Vec<(Addr, AssetInfo)>>>,
         /// Specifies wether donations are allowed.
         allow_donations: Option<bool>,
         /// Strategy how delegations should be handled
@@ -166,16 +173,19 @@ pub enum ReceiveMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CallbackMsg {
-    /// Swap coins held by the contract to Token
-    // Swap {},
+    /// Swap remaining tokens held by the contract to Token
+    Swap {
+        stage: Vec<(Addr, AssetInfo)>,
+    },
     /// Following the swaps, stake the Token acquired to the whitelisted validators
     Reinvest {},
 
     CheckReceivedCoin {
         snapshot: Coin,
+        snapshot_stake: Asset,
     },
 }
 
@@ -242,6 +252,7 @@ pub struct ConfigResponse {
     pub new_owner: Option<String>,
     /// Address of the Stake token
     pub stake_token: String,
+
     /// How often the unbonding queue is to be executed, in seconds
     pub epoch_period: u64,
     /// The staking module's unbonding time, in seconds
@@ -252,8 +263,17 @@ pub struct ConfigResponse {
     /// Information about applied fees
     pub fee_config: FeeConfig,
 
+    /// Sets a new operator
+    pub operator: Option<String>,
+    /// Sets the stages preset
+    pub stages_preset: Option<Vec<Vec<(Addr, AssetInfo)>>>,
+    /// Specifies wether donations are allowed.
+    pub allow_donations: bool,
+
     /// Defines how delegations are spread out
     pub delegation_strategy: DelegationStrategy<String>,
+    /// Update the vote_operator
+    pub vote_operator: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

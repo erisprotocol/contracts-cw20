@@ -113,6 +113,8 @@ fn _vote() -> StdResult<()> {
                 delegation_strategy: None,
                 allow_donations: None,
                 vote_operator: Some(helper.base.prop_gauges.get_address_string()),
+                operator: None,
+                stages_preset: None,
             },
         )
         .unwrap();

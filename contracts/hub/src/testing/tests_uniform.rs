@@ -1,11 +1,12 @@
 use std::str::FromStr;
 use std::vec;
 
+use astroport::asset::token_asset;
 use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockStorage, MOCK_CONTRACT_ADDR};
 use cosmwasm_std::{
-    coin, to_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DistributionMsg, Event, Fraction,
-    GovMsg, Order, OwnedDeps, Reply, StdError, StdResult, SubMsg, SubMsgResponse, Uint128,
-    VoteOption, WasmMsg,
+    attr, coin, to_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DistributionMsg, Event,
+    Fraction, GovMsg, Order, OwnedDeps, Reply, StdError, StdResult, SubMsg, SubMsgResponse,
+    Uint128, VoteOption, WasmMsg,
 };
 use cw20::{Cw20ExecuteMsg, MinterResponse};
 use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
@@ -137,7 +138,11 @@ fn proper_instantiation() {
                 protocol_fee_contract: Addr::unchecked("fee"),
                 protocol_reward_fee: Decimal::from_ratio(1u128, 100u128)
             },
-            delegation_strategy: eris::hub::DelegationStrategy::Uniform
+            delegation_strategy: eris::hub::DelegationStrategy::Uniform,
+            operator: None,
+            stages_preset: None,
+            allow_donations: false,
+            vote_operator: None,
         }
     );
 
@@ -171,6 +176,7 @@ fn bonding() {
     let mut deps = setup_test();
 
     deps.querier.set_bank_balances(&[coin(1000100, CONTRACT_DENOM)]);
+    deps.querier.set_cw20_balance(STAKE_DENOM, MOCK_CONTRACT_ADDR, 0);
 
     // Bond when no delegation has been made
     // In this case, the full deposit simply goes to the first validator
@@ -199,7 +205,7 @@ fn bonding() {
         }))
     );
 
-    assert_eq!(res.messages[2], check_received_coin(100));
+    assert_eq!(res.messages[2], check_received_coin(100, 0));
 
     deps.querier.set_bank_balances(&[coin(12345 + 222, CONTRACT_DENOM)]);
 
@@ -238,7 +244,7 @@ fn bonding() {
         }))
     );
 
-    assert_eq!(res.messages[2], check_received_coin(222));
+    assert_eq!(res.messages[2], check_received_coin(222, 0));
 
     // Check the state after bonding
     deps.querier.set_staking_delegations(&[
@@ -268,6 +274,7 @@ fn donating() {
     let mut deps = setup_test();
 
     deps.querier.set_bank_balances(&[coin(1000100, CONTRACT_DENOM)]);
+    deps.querier.set_cw20_balance(STAKE_DENOM, MOCK_CONTRACT_ADDR, 0);
     // Bond when no delegation has been made
     // In this case, the full deposit simply goes to the first validator
     let res = execute(
@@ -294,7 +301,7 @@ fn donating() {
             funds: vec![]
         }))
     );
-    assert_eq!(res.messages[2], check_received_coin(100));
+    assert_eq!(res.messages[2], check_received_coin(100, 0));
 
     deps.querier.set_bank_balances(&[coin(100, CONTRACT_DENOM)]);
     // Bond when there are existing delegations, and Token:Stake exchange rate is >1
@@ -341,6 +348,8 @@ fn donating() {
             allow_donations: Some(true),
             delegation_strategy: None,
             vote_operator: None,
+            operator: None,
+            stages_preset: None,
         },
     )
     .unwrap();
@@ -356,7 +365,7 @@ fn donating() {
 
     assert_eq!(res.messages.len(), 2);
     assert_eq!(res.messages[0], SubMsg::new(Delegation::new("charlie", 12345).to_cosmos_msg()));
-    assert_eq!(res.messages[1], check_received_coin(100));
+    assert_eq!(res.messages[1], check_received_coin(100, 0));
 
     deps.querier.set_bank_balances(&[coin(100, CONTRACT_DENOM)]);
     // Check the state after bonding
@@ -393,12 +402,15 @@ fn harvesting() {
         Delegation::new("charlie", 341666),
     ]);
     deps.querier.set_cw20_total_supply(STAKE_DENOM, 1000000);
+    deps.querier.set_cw20_balance(STAKE_DENOM, MOCK_CONTRACT_ADDR, 0);
 
     let res = execute(
         deps.as_mut(),
         mock_env(),
         mock_info(MOCK_CONTRACT_ADDR, &[]),
-        ExecuteMsg::Harvest {},
+        ExecuteMsg::Harvest {
+            stages: None,
+        },
     )
     .unwrap();
 
@@ -421,7 +433,7 @@ fn harvesting() {
             validator: "charlie".to_string(),
         }))
     );
-    assert_eq!(res.messages[3], check_received_coin(0));
+    assert_eq!(res.messages[3], check_received_coin(0, 0));
     assert_eq!(
         res.messages[4],
         SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
@@ -439,6 +451,7 @@ fn registering_unlocked_coins() {
     let state = State::default();
 
     deps.querier.set_bank_balances(&[coin(100 + 123, CONTRACT_DENOM)]);
+    deps.querier.set_cw20_balance(STAKE_DENOM, MOCK_CONTRACT_ADDR, 10);
 
     let res = execute(
         deps.as_mut(),
@@ -446,14 +459,18 @@ fn registering_unlocked_coins() {
         mock_info(MOCK_CONTRACT_ADDR, &[]),
         ExecuteMsg::Callback(CallbackMsg::CheckReceivedCoin {
             snapshot: coin(100, CONTRACT_DENOM),
+            snapshot_stake: token_asset(Addr::unchecked(STAKE_DENOM), Uint128::zero()),
         }),
     )
     .unwrap();
 
     assert_eq!(
-        res.events,
-        vec![Event::new("erishub/received")
-            .add_attribute("received_coin", 123.to_string() + CONTRACT_DENOM)]
+        res.attributes,
+        vec![
+            attr("action", "erishub/received"),
+            attr("received_coin", 123.to_string() + CONTRACT_DENOM),
+            attr("received_coin_burnt", 10.to_string() + STAKE_DENOM)
+        ]
     );
 
     // Unlocked coins in contract state should have been updated
@@ -646,6 +663,7 @@ fn submitting_batch() {
         Delegation::new("charlie", 345781),
     ]);
     deps.querier.set_cw20_total_supply(STAKE_DENOM, 1012043);
+    deps.querier.set_cw20_balance(STAKE_DENOM, MOCK_CONTRACT_ADDR, 0);
 
     // We continue from the contract state at the end of the last test
     let unbond_requests = vec![
@@ -718,7 +736,7 @@ fn submitting_batch() {
             funds: vec![]
         }))
     );
-    assert_eq!(res.messages[4], check_received_coin(0));
+    assert_eq!(res.messages[4], check_received_coin(0, 0));
 
     // A new pending batch should have been created
     let pending_batch = state.pending_batch.load(deps.as_ref().storage).unwrap();
@@ -1395,6 +1413,7 @@ fn removing_validator() {
         Delegation::new("bob", 341667),
         Delegation::new("charlie", 341666),
     ]);
+    deps.querier.set_cw20_balance(STAKE_DENOM, MOCK_CONTRACT_ADDR, 0);
 
     let err = execute(
         deps.as_mut(),
@@ -1443,7 +1462,7 @@ fn removing_validator() {
         res.messages[1],
         SubMsg::new(Redelegation::new("charlie", "bob", 170833).to_cosmos_msg()),
     );
-    assert_eq!(res.messages[2], check_received_coin(0));
+    assert_eq!(res.messages[2], check_received_coin(0, 0));
 
     let validators = state.validators.load(deps.as_ref().storage).unwrap();
     assert_eq!(validators, vec![String::from("alice"), String::from("bob")],);
@@ -1572,6 +1591,8 @@ fn update_fee() {
             delegation_strategy: None,
             allow_donations: None,
             vote_operator: None,
+            operator: None,
+            stages_preset: None,
         },
     )
     .unwrap_err();
@@ -1587,6 +1608,8 @@ fn update_fee() {
             delegation_strategy: None,
             allow_donations: None,
             vote_operator: None,
+            operator: None,
+            stages_preset: None,
         },
     )
     .unwrap_err();
@@ -1602,6 +1625,8 @@ fn update_fee() {
             delegation_strategy: None,
             allow_donations: None,
             vote_operator: None,
+            operator: None,
+            stages_preset: None,
         },
     )
     .unwrap();
@@ -1647,6 +1672,8 @@ fn vote() {
             delegation_strategy: None,
             allow_donations: None,
             vote_operator: Some("vote_operator".to_string()),
+            operator: None,
+            stages_preset: None,
         },
     )
     .unwrap();
@@ -1712,6 +1739,8 @@ fn vote_weighted() {
             delegation_strategy: None,
             allow_donations: None,
             vote_operator: Some("vote_operator".to_string()),
+            operator: None,
+            stages_preset: None,
         },
     )
     .unwrap();
@@ -2360,11 +2389,12 @@ fn running_dedup() {
     )
 }
 
-pub fn check_received_coin(amount: u128) -> SubMsg {
+pub fn check_received_coin(amount: u128, amount_stake: u128) -> SubMsg {
     SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: MOCK_CONTRACT_ADDR.to_string(),
         msg: to_binary(&ExecuteMsg::Callback(CallbackMsg::CheckReceivedCoin {
             snapshot: coin(amount, CONTRACT_DENOM),
+            snapshot_stake: token_asset(Addr::unchecked(STAKE_DENOM), Uint128::new(amount_stake)),
         }))
         .unwrap(),
         funds: vec![],

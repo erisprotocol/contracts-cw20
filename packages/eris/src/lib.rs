@@ -25,7 +25,13 @@ mod extensions {
 
     pub trait CustomResponse<T>: Sized {
         fn add_optional_message(self, msg: Option<CosmosMsg<T>>) -> Self;
-        fn add_callback_message(self, env: &Env, msg: CallbackMsg) -> StdResult<Self>;
+        fn add_callback(self, env: &Env, msg: CallbackMsg) -> StdResult<Self>;
+        fn add_optional_callback(self, env: &Env, msg: Option<CallbackMsg>) -> StdResult<Self>;
+        fn add_optional_callbacks(
+            self,
+            env: &Env,
+            msg: Option<Vec<CallbackMsg>>,
+        ) -> StdResult<Self>;
     }
 
     impl CustomResponse<Empty> for Response {
@@ -36,8 +42,31 @@ mod extensions {
             }
         }
 
-        fn add_callback_message(self, env: &Env, msg: CallbackMsg) -> StdResult<Self> {
+        fn add_callback(self, env: &Env, msg: CallbackMsg) -> StdResult<Self> {
             Ok(self.add_message(msg.into_cosmos_msg(&env.contract.address)?))
+        }
+
+        fn add_optional_callback(self, env: &Env, msg: Option<CallbackMsg>) -> StdResult<Self> {
+            match msg {
+                Some(msg) => self.add_callback(env, msg),
+                None => Ok(self),
+            }
+        }
+
+        fn add_optional_callbacks(
+            mut self,
+            env: &Env,
+            msg: Option<Vec<CallbackMsg>>,
+        ) -> StdResult<Self> {
+            match msg {
+                Some(msgs) => {
+                    for msg in msgs {
+                        self = self.add_callback(env, msg)?;
+                    }
+                    Ok(self)
+                },
+                None => Ok(self),
+            }
         }
     }
 

@@ -51,6 +51,10 @@ pub fn config(deps: Deps) -> StdResult<ConfigResponse> {
                 validator_count,
             },
         },
+        operator: state.operator.may_load(deps.storage)?.map(|addr| addr.into()),
+        stages_preset: state.stages_preset.may_load(deps.storage)?,
+        allow_donations: state.allow_donations.may_load(deps.storage)?.unwrap_or(false),
+        vote_operator: state.vote_operator.may_load(deps.storage)?.map(|addr| addr.into()),
     })
 }
 
