@@ -7,7 +7,6 @@ use cosmwasm_std::testing::{mock_env, MockApi, MockStorage};
 use cosmwasm_std::{coin, Addr, Attribute, BlockInfo, Decimal, Timestamp, Validator};
 use cw_multi_test::{App, AppResponse, BankKeeper, BasicAppBuilder, StakeKeeper, StakingInfo};
 use eris::governance_helper::{get_period, EPOCH_START, WEEK};
-use eris::helper::CONTRACT_DENOM;
 
 #[allow(clippy::all)]
 #[allow(dead_code)]
@@ -43,20 +42,12 @@ pub fn mock_app_validators(validators: Option<u64>) -> App {
         .build(|router, api, storage| {
             router
                 .bank
-                .init_balance(
-                    storage,
-                    &Addr::unchecked("user1"),
-                    vec![coin(1000_000000, CONTRACT_DENOM)],
-                )
+                .init_balance(storage, &Addr::unchecked("user1"), vec![coin(1000_000000, "utoken")])
                 .unwrap();
 
             router
                 .bank
-                .init_balance(
-                    storage,
-                    &Addr::unchecked("user2"),
-                    vec![coin(1000_000000, CONTRACT_DENOM)],
-                )
+                .init_balance(storage, &Addr::unchecked("user2"), vec![coin(1000_000000, "utoken")])
                 .unwrap();
 
             router
@@ -64,7 +55,7 @@ pub fn mock_app_validators(validators: Option<u64>) -> App {
                 .setup(
                     storage,
                     StakingInfo {
-                        bonded_denom: CONTRACT_DENOM.to_string(),
+                        bonded_denom: "utoken".to_string(),
                         apr: Decimal::percent(10),
                         unbonding_time: 1814400,
                     },

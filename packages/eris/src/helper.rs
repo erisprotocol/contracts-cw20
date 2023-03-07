@@ -8,8 +8,6 @@ use std::{collections::HashSet, convert::TryInto};
 
 use crate::adapters::asset::AssetEx;
 
-pub const CONTRACT_DENOM: &str = "uwhale";
-
 /// Unwrap a `Reply` object to extract the response
 pub fn unwrap_reply(reply: Reply) -> StdResult<SubMsgResponse> {
     reply.result.into_result().map_err(StdError::generic_err)
@@ -106,7 +104,7 @@ mod tests {
     fn assets_uniq_test() {
         // no duplicate
         assert_uniq_assets(&[
-            native_asset(CONTRACT_DENOM.to_string(), Uint128::new(100)),
+            native_asset("utoken".to_string(), Uint128::new(100)),
             token_asset(Addr::unchecked("token1"), Uint128::new(100)),
         ])
         .unwrap();
@@ -115,15 +113,15 @@ mod tests {
         assert_uniq_assets(&[
             token_asset(Addr::unchecked("token1"), Uint128::new(100)),
             token_asset(Addr::unchecked("token2"), Uint128::new(100)),
-            native_asset(CONTRACT_DENOM.to_string(), Uint128::new(100)),
+            native_asset("utoken".to_string(), Uint128::new(100)),
             native_asset("uusd".to_string(), Uint128::new(100)),
         ])
         .unwrap();
 
         // duplicated native
         assert_uniq_assets(&[
-            native_asset(CONTRACT_DENOM.to_string(), Uint128::new(100)),
-            native_asset(CONTRACT_DENOM.to_string(), Uint128::new(100)),
+            native_asset("utoken".to_string(), Uint128::new(100)),
+            native_asset("utoken".to_string(), Uint128::new(100)),
             token_asset(Addr::unchecked("token1"), Uint128::new(100)),
         ])
         .unwrap_err();
@@ -133,7 +131,7 @@ mod tests {
             token_asset(Addr::unchecked("token1"), Uint128::new(100)),
             token_asset(Addr::unchecked("token1"), Uint128::new(100)),
             token_asset(Addr::unchecked("token2"), Uint128::new(100)),
-            native_asset(CONTRACT_DENOM.to_string(), Uint128::new(100)),
+            native_asset("utoken".to_string(), Uint128::new(100)),
         ])
         .unwrap_err();
     }

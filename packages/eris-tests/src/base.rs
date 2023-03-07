@@ -145,6 +145,8 @@ impl BaseErisTestPackage {
             protocol_reward_fee: Decimal::from_ratio(1u128, 100u128),
             delegation_strategy: None,
             vote_operator: None,
+            operator: "operator".to_string(),
+            utoken: "utoken".into(),
         };
 
         let instance =

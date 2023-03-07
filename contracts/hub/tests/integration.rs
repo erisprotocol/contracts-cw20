@@ -1,7 +1,6 @@
 use anyhow::{Ok, Result};
 use cosmwasm_std::{attr, coin, coins, Addr, Decimal, Delegation, Event, FullDelegation, Uint128};
 use cw_multi_test::App;
-use eris::helper::CONTRACT_DENOM;
 use eris::hub::{DelegationStrategy, StateResponse, WantedDelegationsResponse};
 use eris_tests::{gov_helper::EscrowHelper, ChainAppExtension};
 use eris_tests::{mock_app, mock_app_validators, EventChecker};
@@ -47,10 +46,11 @@ fn update_configs() -> Result<()> {
                 max_delegation_bps: 2500,
                 validator_count: 5,
             },
-            operator: None,
+            operator: "operator".into(),
             stages_preset: None,
             allow_donations: false,
             vote_operator: None,
+            utoken: "utoken".into()
         }
     );
 
@@ -107,10 +107,11 @@ fn update_configs() -> Result<()> {
                 protocol_reward_fee: Decimal::from_ratio(10u128, 100u128)
             },
             delegation_strategy: eris::hub::DelegationStrategy::Uniform,
-            operator: None,
+            operator: "operator".into(),
             stages_preset: None,
             allow_donations: false,
             vote_operator: None,
+            utoken: "utoken".into()
         }
     );
 
@@ -127,7 +128,7 @@ fn happy_case() -> Result<()> {
         helper.hub_add_validator(router_ref, format!("val{0}", i))?;
     }
 
-    helper.hub_bond(router_ref, "user1", 100_000000, CONTRACT_DENOM)?;
+    helper.hub_bond(router_ref, "user1", 100_000000, "utoken")?;
 
     helper.ve_lock_lp(router_ref, "user1", 1_000000, WEEK * 3)?;
     helper.ve_lock_lp(router_ref, "user2", 1_000000, WEEK * 104)?;
@@ -516,8 +517,8 @@ fn bond_and_harvest(
     helper: &EscrowHelper,
     router_ref: &mut cw_multi_test::App,
 ) -> Result<(Uint128, Uint128), anyhow::Error> {
-    helper.hub_bond(router_ref, "user1", 100_000000, CONTRACT_DENOM)?;
-    helper.hub_bond(router_ref, "user2", 200_000000, CONTRACT_DENOM)?;
+    helper.hub_bond(router_ref, "user1", 100_000000, "utoken")?;
+    helper.hub_bond(router_ref, "user2", 200_000000, "utoken")?;
     let state = helper.hub_query_state(router_ref)?;
     assert_eq!(
         state,
@@ -537,9 +538,9 @@ fn bond_and_harvest(
         Some(FullDelegation {
             delegator: helper.base.hub.get_address(),
             validator: "val1".to_string(),
-            amount: coin(100_000000, CONTRACT_DENOM),
-            can_redelegate: coin(100_000000, CONTRACT_DENOM),
-            accumulated_rewards: coins(502_250684, CONTRACT_DENOM),
+            amount: coin(100_000000, "utoken"),
+            can_redelegate: coin(100_000000, "utoken"),
+            accumulated_rewards: coins(502_250684, "utoken"),
         })
     );
     router_ref.next_block(60 * 60 * 24);
@@ -549,11 +550,11 @@ fn bond_and_harvest(
         Some(FullDelegation {
             delegator: helper.base.hub.get_address(),
             validator: "val1".to_string(),
-            amount: coin(100_000000, CONTRACT_DENOM),
-            can_redelegate: coin(100_000000, CONTRACT_DENOM),
+            amount: coin(100_000000, "utoken"),
+            can_redelegate: coin(100_000000, "utoken"),
             // not sure why accumulated rewards are so high
             // for the test it is only important that the full rewards are compounded
-            accumulated_rewards: coins(502_276712, CONTRACT_DENOM),
+            accumulated_rewards: coins(502_276712, "utoken"),
         })
     );
     let result = helper.hub_query_delegation(router_ref, "val2")?;
@@ -562,9 +563,9 @@ fn bond_and_harvest(
         Some(FullDelegation {
             delegator: helper.base.hub.get_address(),
             validator: "val2".to_string(),
-            amount: coin(200_000000, CONTRACT_DENOM),
-            can_redelegate: coin(200_000000, CONTRACT_DENOM),
-            accumulated_rewards: coins(1004_553424, CONTRACT_DENOM),
+            amount: coin(200_000000, "utoken"),
+            can_redelegate: coin(200_000000, "utoken"),
+            accumulated_rewards: coins(1004_553424, "utoken"),
         })
     );
     let result = helper.hub_harvest(router_ref)?;
@@ -588,7 +589,7 @@ pub fn delegation(helper: &EscrowHelper, validator: impl Into<String>, amount: u
     Delegation {
         delegator: helper.base.hub.get_address(),
         validator: validator.into(),
-        amount: coin(amount, CONTRACT_DENOM),
+        amount: coin(amount, "utoken"),
     }
 }
 

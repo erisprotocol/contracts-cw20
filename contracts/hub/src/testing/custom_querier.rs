@@ -6,12 +6,11 @@ use cosmwasm_std::{
     QueryRequest, SystemError, WasmQuery,
 };
 use cw20::Cw20QueryMsg;
-use eris::helper::CONTRACT_DENOM;
 
 use crate::types::Delegation;
 
 use super::cw20_querier::Cw20Querier;
-use super::helpers::err_unsupported_query;
+use super::helpers::{err_unsupported_query, MOCK_UTOKEN};
 
 #[derive(Default)]
 pub(super) struct CustomQuerier {
@@ -65,13 +64,13 @@ impl CustomQuerier {
             .map(|d| FullDelegation {
                 delegator: Addr::unchecked(MOCK_CONTRACT_ADDR),
                 validator: d.validator.clone(),
-                amount: Coin::new(d.amount, CONTRACT_DENOM),
-                can_redelegate: Coin::new(0, CONTRACT_DENOM),
+                amount: Coin::new(d.amount, MOCK_UTOKEN),
+                can_redelegate: Coin::new(0, MOCK_UTOKEN),
                 accumulated_rewards: vec![],
             })
             .collect::<Vec<_>>();
 
-        self.staking_querier = StakingQuerier::new(CONTRACT_DENOM, &[], &fds);
+        self.staking_querier = StakingQuerier::new(MOCK_UTOKEN, &[], &fds);
     }
 
     pub fn handle_query(&self, request: &QueryRequest<Empty>) -> QuerierResult {

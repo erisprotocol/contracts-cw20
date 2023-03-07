@@ -61,6 +61,10 @@ pub struct InstantiateMsg {
     pub cw20_code_id: u64,
     /// Account who can call certain privileged functions
     pub owner: String,
+    /// Account who can call harvest
+    pub operator: String,
+    /// Denom of the underlaying staking token
+    pub utoken: String,
     /// Name of the liquid staking token
     pub name: String,
     /// Symbol of the liquid staking token
@@ -161,6 +165,16 @@ pub enum ExecuteMsg {
         /// Update the vote_operator
         vote_operator: Option<String>,
     },
+
+    Claim {
+        claims: Vec<ClaimType>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimType {
+    Default(String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -242,6 +256,13 @@ pub enum QueryMsg {
         start_after: Option<u64>,
         limit: Option<u32>,
     },
+
+    // Query exchange rates
+    ExchangeRates {
+        // start after the provided timestamp in s
+        start_after: Option<u64>,
+        limit: Option<u32>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -250,6 +271,8 @@ pub struct ConfigResponse {
     pub owner: String,
     /// Pending ownership transfer, awaiting acceptance by the new owner
     pub new_owner: Option<String>,
+    /// Underlying staked token
+    pub utoken: String,
     /// Address of the Stake token
     pub stake_token: String,
 
@@ -264,7 +287,7 @@ pub struct ConfigResponse {
     pub fee_config: FeeConfig,
 
     /// Sets a new operator
-    pub operator: Option<String>,
+    pub operator: String,
     /// Sets the stages preset
     pub stages_preset: Option<Vec<Vec<(Addr, AssetInfo)>>>,
     /// Specifies wether donations are allowed.
@@ -345,6 +368,14 @@ pub struct PendingBatch {
     pub ustake_to_burn: Uint128,
     /// Estimated time when this batch will be submitted for unbonding
     pub est_unbond_start_time: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq, Eq, JsonSchema)]
+pub struct StakeToken<T> {
+    // denom of the underlying token
+    pub utoken: String,
+    // denom of the stake token
+    pub ustake: T,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -428,6 +459,13 @@ pub struct UnbondRequestsByUserResponseItemDetails {
 
     // Is set if the unbonding request is still pending
     pub pending: Option<PendingBatch>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct ExchangeRatesResponse {
+    pub exchange_rates: Vec<(u64, Decimal)>,
+    // APR normalized per DAY
+    pub apr: Option<Decimal>,
 }
 
 pub type MigrateMsg = Empty;

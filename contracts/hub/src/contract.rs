@@ -5,12 +5,12 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::Cw20ReceiveMsg;
 
-use eris::helper::{unwrap_reply, CONTRACT_DENOM};
+use eris::helper::unwrap_reply;
 use eris::hub::{CallbackMsg, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, ReceiveMsg};
 
+use crate::claim::exec_claim;
 use crate::constants::{CONTRACT_NAME, CONTRACT_VERSION};
 use crate::error::{ContractError, ContractResult};
-use crate::helpers::parse_received_fund;
 use crate::state::State;
 use crate::{execute, gov, queries};
 
@@ -35,16 +35,10 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> C
             deps,
             env,
             receiver.map(|s| api.addr_validate(&s)).transpose()?.unwrap_or(info.sender),
-            parse_received_fund(&info.funds, CONTRACT_DENOM)?,
+            &info.funds,
             false,
         ),
-        ExecuteMsg::Donate {} => execute::bond(
-            deps,
-            env,
-            info.sender,
-            parse_received_fund(&info.funds, CONTRACT_DENOM)?,
-            true,
-        ),
+        ExecuteMsg::Donate {} => execute::bond(deps, env, info.sender, &info.funds, true),
         ExecuteMsg::WithdrawUnbonded {
             receiver,
         } => execute::withdraw_unbonded(
@@ -101,6 +95,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> C
             delegation_strategy,
             vote_operator,
         ),
+        ExecuteMsg::Claim {
+            claims,
+        } => exec_claim(deps, env, info, claims),
     }
 }
 
@@ -113,7 +110,7 @@ fn receive(deps: DepsMut, env: Env, info: MessageInfo, cw20_msg: Cw20ReceiveMsg)
             let state = State::default();
 
             let stake_token = state.stake_token.load(deps.storage)?;
-            if info.sender != stake_token {
+            if info.sender != stake_token.ustake {
                 return Err(ContractError::ExpectingStakeToken(info.sender.into()));
             }
 
@@ -194,6 +191,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::SimulateWantedDelegations {
             period,
         } => to_binary(&queries::simulate_wanted_delegations(deps, env, period)?),
+        QueryMsg::ExchangeRates {
+            start_after,
+            limit,
+        } => to_binary(&queries::query_exchange_rates(deps, env, start_after, limit)?),
     }
 }
 

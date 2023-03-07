@@ -1,9 +1,10 @@
 use astroport::asset::AssetInfo;
-use cosmwasm_std::{Addr, Coin, Storage};
-use cw_storage_plus::{Index, IndexList, IndexedMap, Item, MultiIndex};
+use cosmwasm_std::{Addr, Coin, Decimal, Storage};
+use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
 
 use eris::hub::{
-    Batch, DelegationStrategy, FeeConfig, PendingBatch, UnbondRequest, WantedDelegationsShare,
+    Batch, DelegationStrategy, FeeConfig, PendingBatch, StakeToken, UnbondRequest,
+    WantedDelegationsShare,
 };
 use itertools::Itertools;
 
@@ -19,7 +20,7 @@ pub(crate) struct State<'a> {
     /// Stages that must be used by permissionless users
     pub stages_preset: Item<'a, Vec<Vec<(Addr, AssetInfo)>>>,
     /// Address of the Liquid Staking token
-    pub stake_token: Item<'a, Addr>,
+    pub stake_token: Item<'a, StakeToken<Addr>>,
     /// How often the unbonding queue is to be executed
     pub epoch_period: Item<'a, u64>,
     /// The staking module's unbonding time, in seconds
@@ -44,6 +45,8 @@ pub(crate) struct State<'a> {
     pub vote_operator: Item<'a, Addr>,
     /// Specifies wether the contract allows donations
     pub allow_donations: Item<'a, bool>,
+    // history of the exchange_rate
+    pub exchange_history: Map<'a, u64, Decimal>,
 }
 
 impl Default for State<'static> {
@@ -80,6 +83,7 @@ impl Default for State<'static> {
             delegation_goal: Item::new("delegation_goal"),
             vote_operator: Item::new("vote_operator"),
             allow_donations: Item::new("allow_donations"),
+            exchange_history: Map::new("exchange_history"),
         }
     }
 }

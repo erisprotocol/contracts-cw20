@@ -10,7 +10,6 @@ use cosmwasm_std::{
 use cw20::{Cw20QueryMsg, TokenInfoResponse};
 use eris::{
     governance_helper::get_period,
-    helper::CONTRACT_DENOM,
     helpers::bps::BasicPoints,
     hub::{DelegationStrategy, WantedDelegationsShare},
 };
@@ -37,13 +36,19 @@ pub(crate) fn query_delegation(
     validator: &str,
     delegator_addr: &Addr,
 ) -> StdResult<Delegation> {
-    Ok(Delegation {
-        validator: validator.to_string(),
-        amount: querier
-            .query_delegation(delegator_addr, validator)?
-            .map(|fd| fd.amount.amount.u128())
-            .unwrap_or(0),
-    })
+    let delegation = querier.query_delegation(delegator_addr, validator)?;
+
+    Ok(delegation
+        .map(|fd| Delegation {
+            validator: validator.to_string(),
+            amount: fd.amount.amount.u128(),
+            denom: fd.amount.denom,
+        })
+        .unwrap_or(Delegation {
+            validator: validator.to_string(),
+            amount: 0,
+            denom: "".into(),
+        }))
 }
 
 /// Query the amounts of Token a staker is delegating to each of the validators specified
@@ -61,14 +66,16 @@ pub(crate) fn query_delegations(
 pub(crate) fn query_all_delegations(
     querier: &QuerierWrapper,
     delegator_addr: &Addr,
+    utoken: &str,
 ) -> StdResult<Vec<Delegation>> {
     let result: Vec<_> = querier
         .query_all_delegations(delegator_addr)?
         .into_iter()
-        .filter(|d| d.amount.denom == CONTRACT_DENOM && !d.amount.amount.is_zero())
+        .filter(|d| d.amount.denom == utoken && !d.amount.amount.is_zero())
         .map(|d| Delegation {
             validator: d.validator,
             amount: d.amount.amount.u128(),
+            denom: d.amount.denom,
         })
         .collect();
 

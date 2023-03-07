@@ -1,12 +1,14 @@
+use std::ops::Div;
+
 use cosmwasm_std::{Addr, Decimal, Deps, Env, Order, StdResult, Uint128};
 use cw_storage_plus::Bound;
 
+use eris::constants::DAY;
 use eris::governance_helper::get_period;
-use eris::helper::CONTRACT_DENOM;
 use eris::hub::{
-    Batch, ConfigResponse, PendingBatch, StateResponse, UnbondRequestsByBatchResponseItem,
-    UnbondRequestsByUserResponseItem, UnbondRequestsByUserResponseItemDetails,
-    WantedDelegationsResponse,
+    Batch, ConfigResponse, ExchangeRatesResponse, PendingBatch, StateResponse,
+    UnbondRequestsByBatchResponseItem, UnbondRequestsByUserResponseItem,
+    UnbondRequestsByUserResponseItemDetails, WantedDelegationsResponse,
 };
 use itertools::Itertools;
 
@@ -20,11 +22,13 @@ const DEFAULT_LIMIT: u32 = 10;
 
 pub fn config(deps: Deps) -> StdResult<ConfigResponse> {
     let state = State::default();
+    let stake_token = state.stake_token.load(deps.storage)?;
 
     Ok(ConfigResponse {
         owner: state.owner.load(deps.storage)?.into(),
         new_owner: state.new_owner.may_load(deps.storage)?.map(|addr| addr.into()),
-        stake_token: state.stake_token.load(deps.storage)?.into(),
+        utoken: stake_token.utoken,
+        stake_token: stake_token.ustake.into(),
         epoch_period: state.epoch_period.load(deps.storage)?,
         unbond_period: state.unbond_period.load(deps.storage)?,
         validators: state.validators.load(deps.storage)?,
@@ -51,7 +55,7 @@ pub fn config(deps: Deps) -> StdResult<ConfigResponse> {
                 validator_count,
             },
         },
-        operator: state.operator.may_load(deps.storage)?.map(|addr| addr.into()),
+        operator: state.operator.load(deps.storage)?.into(),
         stages_preset: state.stages_preset.may_load(deps.storage)?,
         allow_donations: state.allow_donations.may_load(deps.storage)?.unwrap_or(false),
         vote_operator: state.vote_operator.may_load(deps.storage)?.map(|addr| addr.into()),
@@ -60,11 +64,11 @@ pub fn config(deps: Deps) -> StdResult<ConfigResponse> {
 
 pub fn state(deps: Deps, env: Env) -> StdResult<StateResponse> {
     let state = State::default();
-
     let stake_token = state.stake_token.load(deps.storage)?;
-    let total_ustake = query_cw20_total_supply(&deps.querier, &stake_token)?;
+    let total_ustake = query_cw20_total_supply(&deps.querier, &stake_token.ustake)?;
 
-    let delegations = query_all_delegations(&deps.querier, &env.contract.address)?;
+    let delegations =
+        query_all_delegations(&deps.querier, &env.contract.address, &stake_token.utoken)?;
     let total_utoken: u128 = delegations.iter().map(|d| d.amount).sum();
 
     // only not reconciled batches are relevant as they are still unbonding and estimated unbond time in the future.
@@ -82,7 +86,7 @@ pub fn state(deps: Deps, env: Env) -> StdResult<StateResponse> {
         .map(|item| item.utoken_unclaimed.u128())
         .sum();
 
-    let available = deps.querier.query_balance(&env.contract.address, CONTRACT_DENOM)?.amount;
+    let available = deps.querier.query_balance(&env.contract.address, stake_token.utoken)?.amount;
 
     let exchange_rate = if total_ustake.is_zero() {
         Decimal::one()
@@ -105,6 +109,7 @@ pub fn state(deps: Deps, env: Env) -> StdResult<StateResponse> {
 
 pub fn wanted_delegations(deps: Deps, env: Env) -> StdResult<WantedDelegationsResponse> {
     let state = State::default();
+    let stake_token = state.stake_token.load(deps.storage)?;
 
     let (delegations, _, _, share) = get_utoken_per_validator_prepared(
         &state,
@@ -112,6 +117,7 @@ pub fn wanted_delegations(deps: Deps, env: Env) -> StdResult<WantedDelegationsRe
         &deps.querier,
         &env.contract.address,
         None,
+        &stake_token.utoken,
     )?;
 
     Ok(WantedDelegationsResponse {
@@ -126,6 +132,7 @@ pub fn simulate_wanted_delegations(
     period: Option<u64>,
 ) -> StdResult<WantedDelegationsResponse> {
     let state = State::default();
+    let stake_token = state.stake_token.load(deps.storage)?;
 
     let period = period.unwrap_or(get_period(env.block.time.seconds())? + 1);
 
@@ -145,6 +152,7 @@ pub fn simulate_wanted_delegations(
         &deps.querier,
         &env.contract.address,
         Some(delegation_goal),
+        &stake_token.utoken,
     )?;
 
     Ok(WantedDelegationsResponse {
@@ -312,4 +320,38 @@ pub fn unbond_requests_by_user_details(
             })
         })
         .collect()
+}
+
+pub fn query_exchange_rates(
+    deps: Deps,
+    _env: Env,
+    start_after: Option<u64>,
+    limit: Option<u32>,
+) -> StdResult<ExchangeRatesResponse> {
+    let state = State::default();
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let end = start_after.map(Bound::exclusive);
+
+    let exchange_rates = state
+        .exchange_history
+        .range(deps.storage, None, end, Order::Descending)
+        .take(limit)
+        .collect::<StdResult<Vec<(u64, Decimal)>>>()?;
+
+    let apr: Option<Decimal> = if exchange_rates.len() > 1 {
+        let current = exchange_rates[0];
+        let last = exchange_rates[exchange_rates.len() - 1];
+
+        let delta_time_s = current.0 - last.0;
+        let delta_rate = current.1.checked_sub(last.1).unwrap_or_default();
+
+        Some(delta_rate.checked_mul(Decimal::from_ratio(DAY, delta_time_s).div(last.1))?)
+    } else {
+        None
+    };
+
+    Ok(ExchangeRatesResponse {
+        exchange_rates,
+        apr,
+    })
 }
