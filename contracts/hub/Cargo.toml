@@ -1,5 +1,5 @@
 [package]
-name = "eris-staking-hub"
+name = "eris-staking-hub-cw20"
 version = "1.4.0"
 authors = ["devs <devs@erisprotocol.com>"]
 edition = "2018"

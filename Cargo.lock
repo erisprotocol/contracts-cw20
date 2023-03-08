@@ -829,7 +829,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eris-staking-hub"
+name = "eris-staking-hub-cw20"
 version = "1.4.0"
 dependencies = [
  "anyhow",
@@ -876,7 +876,7 @@ dependencies = [
  "eris-gov-emp-gauges",
  "eris-gov-prop-gauges",
  "eris-gov-voting-escrow",
- "eris-staking-hub",
+ "eris-staking-hub-cw20",
  "eris-staking-token",
 ]
 

@@ -118,11 +118,11 @@ impl BaseErisTestPackage {
     fn init_hub(&mut self, router: &mut App, owner: Addr) {
         let hub_contract = Box::new(
             ContractWrapper::new_with_empty(
-                eris_staking_hub::contract::execute,
-                eris_staking_hub::contract::instantiate,
-                eris_staking_hub::contract::query,
+                eris_staking_hub_cw20::contract::execute,
+                eris_staking_hub_cw20::contract::instantiate,
+                eris_staking_hub_cw20::contract::query,
             )
-            .with_reply(eris_staking_hub::contract::reply),
+            .with_reply(eris_staking_hub_cw20::contract::reply),
         );
 
         let code_id = router.store_code(hub_contract);
